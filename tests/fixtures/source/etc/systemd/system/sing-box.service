@@ -1,0 +1,6 @@
+[Unit]
+Description=sing-box service
+
+[Service]
+ExecStart=/etc/sing-box/sing-box run -C /etc/sing-box/conf
+

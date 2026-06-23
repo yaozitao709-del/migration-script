@@ -1,0 +1,5 @@
+vless://11111111-1111-4111-8111-111111111111@203.0.113.10:21001?encryption=none&flow=xtls-rprx-vision&security=reality&sni=www.iij.ad.jp&fp=firefox&pbk=FIXTURE_REALITY_PUBLIC_KEY&type=tcp#fixture
+vmess://eyJ2IjoiMiIsInBzIjoiZml4dHVyZSIsImFkZCI6ImNkbnMuZG9vbi5ldS5vcmciLCJwb3J0IjoiNDQzIiwiaWQiOiIxMTExMTExMS0xMTExLTQxMTEtODExMS0xMTExMTExMTExMTEiLCJhaWQiOiIwIiwibmV0Ijoid3MiLCJob3N0IjoiZml4dHVyZS1hcmdvLnRyeWNsb3VkZmxhcmUuY29tIiwicGF0aCI6Ii92bWVzcy1hcmdvP2VkPTI1NjAiLCJ0bHMiOiJ0bHMiLCJzbmkiOiJmaXh0dXJlLWFyZ28udHJ5Y2xvdWRmbGFyZS5jb20ifQ==
+hysteria2://11111111-1111-4111-8111-111111111111@203.0.113.10:21004/?sni=www.bing.com&insecure=1#fixture
+tuic://11111111-1111-4111-8111-111111111111:11111111-1111-4111-8111-111111111111@203.0.113.10:21003?sni=www.bing.com&allow_insecure=1#fixture
+

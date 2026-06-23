@@ -31,7 +31,7 @@
 
 ```bash
 sudo -i
-bash <(curl -Ls https://raw.githubusercontent.com/yaozitao709-del/migration-script/main/sui-singbox-migrate.sh) --plan
+bash <(curl -fsSL --connect-timeout 15 https://raw.githubusercontent.com/yaozitao709-del/migration-script/main/sui-singbox-migrate.sh) --plan
 ```
 
 `--plan` 只检查，不会改服务器。
@@ -40,7 +40,7 @@ bash <(curl -Ls https://raw.githubusercontent.com/yaozitao709-del/migration-scri
 
 ```bash
 sudo -i
-bash <(curl -Ls https://raw.githubusercontent.com/yaozitao709-del/migration-script/main/sui-singbox-migrate.sh)
+bash <(curl -fsSL --connect-timeout 15 https://raw.githubusercontent.com/yaozitao709-del/migration-script/main/sui-singbox-migrate.sh)
 ```
 
 脚本会让你确认：
@@ -121,6 +121,18 @@ bash sui-singbox-migrate.sh --restore /root/sui-migration-backup/具体备份目
 bash sui-singbox-migrate.sh --force-reimport
 ```
 
+如果你是用 GitHub Raw 一行命令运行的，也可以直接用：
+
+```bash
+bash <(curl -fsSL --connect-timeout 15 https://raw.githubusercontent.com/yaozitao709-del/migration-script/main/sui-singbox-migrate.sh) --force-reimport
+```
+
+`--force-reimport` 会修复已经导入过的基础配置，不会删除你在 S-UI 面板里创建的用户。这个版本会额外修复：
+
+- IPv6 公开地址在 VLESS、Hysteria2、TUIC 订阅链接中缺少 `[]` 导致客户端提示“无效 URL 配置”；
+- S-UI 缺少可用 `direct` 出站导致 VMess 能导入但实际访问超时；
+- 健康检查只看端口、不检查订阅链接和路由出口的问题。
+
 ## 上传到 GitHub：最简单的网页操作
 
 建议仓库设为 `Public`，这样 VPS 才能直接使用一行命令。公共仓库中的代码任何人都能看到，所以不要把密码、Token、服务器 IP 或密钥上传进去。
@@ -142,7 +154,7 @@ bash sui-singbox-migrate.sh --force-reimport
 最终命令通常是：
 
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/yaozitao709-del/migration-script/main/sui-singbox-migrate.sh)
+bash <(curl -fsSL --connect-timeout 15 https://raw.githubusercontent.com/yaozitao709-del/migration-script/main/sui-singbox-migrate.sh)
 ```
 
 终端中不要复制 Markdown 的中括号或圆括号链接格式。

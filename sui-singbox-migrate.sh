@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 umask 077
 
-SCRIPT_VERSION="0.1.0"
+SCRIPT_VERSION="0.1.1"
 SOURCE_PROFILE="eooce/sing-box@9b4a35d79944b41c57751ebcebc6ff55ada83df3"
 SUI_VERSION="v1.4.1"
 SUI_SINGBOX_VERSION="v1.13.4"
@@ -157,6 +157,17 @@ extract_uri_host() {
     sed -E 's/^\[//; s/\]$//'
 }
 
+format_url_host() {
+  local host="$1"
+  if [[ "$host" == \[*\] ]]; then
+    printf '%s' "$host"
+  elif [[ "$host" == *:* ]]; then
+    printf '[%s]' "$host"
+  else
+    printf '%s' "$host"
+  fi
+}
+
 extract_uri_port() {
   sed -nE 's#^[a-zA-Z0-9]+://[^@]+@(\[[^]]+\]|[^:]+):([0-9]+).*#\2#p'
 }
@@ -279,10 +290,12 @@ build_shared_tls_payload() {
 }
 
 build_vless_payload() {
+  local public_server
+  public_server="$(format_url_host "$VLESS_PUBLIC_SERVER")"
   jq -n \
     --argjson tls_id "$REALITY_TLS_ID" \
     --argjson port "$VLESS_PORT" \
-    --arg server "$VLESS_PUBLIC_SERVER" \
+    --arg server "$public_server" \
     '{
       id: 0, type: "vless", tag: "vless-reality",
       listen: "::", listen_port: $port, tls_id: $tls_id,
@@ -325,10 +338,12 @@ build_vmess_payload() {
 }
 
 build_hy2_payload() {
+  local public_server
+  public_server="$(format_url_host "$HY2_PUBLIC_SERVER")"
   jq -n \
     --argjson tls_id "$SHARED_TLS_ID" \
     --argjson port "$HY2_PORT" \
-    --arg server "$HY2_PUBLIC_SERVER" \
+    --arg server "$public_server" \
     '{
       id: 0, type: "hysteria2", tag: "hysteria2",
       listen: "::", listen_port: $port, tls_id: $tls_id,
@@ -340,10 +355,12 @@ build_hy2_payload() {
 }
 
 build_tuic_payload() {
+  local public_server
+  public_server="$(format_url_host "$TUIC_PUBLIC_SERVER")"
   jq -n \
     --argjson tls_id "$SHARED_TLS_ID" \
     --argjson port "$TUIC_PORT" \
-    --arg server "$TUIC_PUBLIC_SERVER" \
+    --arg server "$public_server" \
     '{
       id: 0, type: "tuic", tag: "tuic",
       listen: "::", listen_port: $port, tls_id: $tls_id,
@@ -363,11 +380,30 @@ build_base_config_payload() {
     reduce .[] as $doc ({}; . * $doc)
     | del(.inbounds, .outbounds, .endpoints, .services)
     | .log.level = "info"
+    | .route.final = (
+        if (.route.final // "" | type) == "string" and (.route.final // "") != "" then
+          .route.final
+        else
+          "direct"
+        end
+      )
+    | .route.rules = [
+        (.route.rules // [])[]
+        | if has("outbound") and ((.outbound // "") == "") then
+            del(.outbound)
+          else
+            .
+          end
+      ]
   ' \
     "$SOURCE_DIR/conf/log.json" \
     "$SOURCE_DIR/conf/ntp.json" \
     "$SOURCE_DIR/conf/dns.json" \
     "$SOURCE_DIR/conf/route.json"
+}
+
+build_direct_outbound_payload() {
+  jq -n '{id: 0, type: "direct", tag: "direct"}'
 }
 
 print_plan() {
@@ -645,6 +681,7 @@ find_object_id() {
   case "$object" in
     tls) array_name="tls" ;;
     inbounds) array_name="inbounds" ;;
+    outbounds) array_name="outbounds" ;;
     endpoints) array_name="endpoints" ;;
     clients) array_name="clients" ;;
     *) die "不支持查找对象：$object" ;;
@@ -684,6 +721,9 @@ import_sui_objects() {
   local payload
   info "导入 DNS、路由和 WARP"
   save_base_config
+
+  payload="$(build_direct_outbound_payload)"
+  upsert_named_object outbounds tag direct "$payload" >/dev/null
 
   payload="$(build_reality_tls_payload)"
   REALITY_TLS_ID="$(upsert_named_object tls name migrated-reality "$payload")"
@@ -871,6 +911,33 @@ validate_argo_mapping() {
   [[ "$domain" == *.trycloudflare.com ]] || die "VMess 的 Argo 域名无效"
 }
 
+validate_outbound_route() {
+  local response tags config final missing
+  response="$(api_get outbounds)"
+  tags="$(jq -r '.obj.outbounds[]?.tag' <<<"$response")"
+  grep -Fxq 'direct' <<<"$tags" || die "缺少 direct 出站，节点无法访问外网"
+
+  response="$(api_get config)"
+  config="$(jq -c '.obj.config // .config // .obj // .' <<<"$response")"
+  final="$(jq -r '.route.final // "direct"' <<<"$config")"
+  [[ -n "$final" ]] || final="direct"
+  if ! grep -Fxq "$final" <<<"$tags" &&
+    ! api_get endpoints | jq -e --arg tag "$final" '.obj.endpoints[]? | select(.tag == $tag)' >/dev/null; then
+    die "路由最终出口不存在：$final"
+  fi
+
+  missing="$(jq -r '
+    (.route.rules // [])[]
+    | .outbound? // empty
+  ' <<<"$config" | while read -r tag; do
+    [[ -z "$tag" ]] && continue
+    grep -Fxq "$tag" <<<"$tags" && continue
+    api_get endpoints | jq -e --arg tag "$tag" '.obj.endpoints[]? | select(.tag == $tag)' >/dev/null && continue
+    printf '%s\n' "$tag"
+  done | sort -u)"
+  [[ -z "$missing" ]] || die "路由规则引用了不存在的出口：$(tr '\n' ' ' <<<"$missing")"
+}
+
 new_uuid() {
   if [[ -r /proc/sys/kernel/random/uuid ]]; then
     cat /proc/sys/kernel/random/uuid
@@ -952,7 +1019,32 @@ validate_disposable_subscription() (
   grep -q 'vmess://' <<<"$decoded" || die "测试订阅缺少 VMess"
   grep -q 'hysteria2://' <<<"$decoded" || die "测试订阅缺少 Hysteria2"
   grep -q 'tuic://' <<<"$decoded" || die "测试订阅缺少 TUIC"
+  validate_subscription_links "$decoded"
 )
+
+validate_subscription_links() {
+  local decoded="$1" line scheme authority colon_count
+  while IFS= read -r line; do
+    case "$line" in
+      vless://*|hysteria2://*|tuic://*)
+        scheme="${line%%://*}"
+        if [[ "$line" =~ ^[a-zA-Z0-9]+://[^@]+@([^/?#]+) ]]; then
+          authority="${BASH_REMATCH[1]}"
+        else
+          die "测试订阅链接无法解析：$scheme"
+        fi
+        colon_count="$(tr -cd ':' <<<"$authority" | wc -c | tr -d ' ')"
+        if [[ "$authority" == \[*\]:* ]]; then
+          :
+        elif (( colon_count == 1 )); then
+          :
+        else
+          die "测试订阅 IPv6 地址缺少方括号：$scheme"
+        fi
+        ;;
+    esac
+  done <<<"$decoded"
+}
 
 validate_migration() {
   info "执行迁移健康检查"
@@ -962,6 +1054,7 @@ validate_migration() {
 
   [[ "$(object_count tls tls)" -ge 2 ]] || die "TLS 配置数量不足"
   [[ "$(object_count inbounds inbounds)" -eq 4 ]] || die "四个入站没有全部导入"
+  validate_outbound_route
   validate_listeners
   validate_argo_mapping
   validate_disposable_subscription

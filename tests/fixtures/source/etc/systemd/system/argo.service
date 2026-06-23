@@ -1,0 +1,5 @@
+[Unit]
+Description=Cloudflare Tunnel
+
+[Service]
+ExecStart=/etc/sing-box/argo tunnel --url http://localhost:8001

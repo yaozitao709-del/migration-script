@@ -47,16 +47,22 @@
 那么检查命令是：
 
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/yaozitao709-del/migration-script/main/sui-singbox-migrate.sh) --plan
+bash <(curl -fsSL --connect-timeout 15 https://raw.githubusercontent.com/yaozitao709-del/migration-script/main/sui-singbox-migrate.sh) --plan
 ```
 
 正式运行命令是：
 
 ```bash
-bash <(curl -Ls https://raw.githubusercontent.com/yaozitao709-del/migration-script/main/sui-singbox-migrate.sh)
+bash <(curl -fsSL --connect-timeout 15 https://raw.githubusercontent.com/yaozitao709-del/migration-script/main/sui-singbox-migrate.sh)
 ```
 
 以上命令已经替换成当前仓库的真实地址，可以直接复制使用。
+
+如果已经迁移过，但需要重新修复 S-UI 里的入站、出站和路由，可以运行：
+
+```bash
+bash <(curl -fsSL --connect-timeout 15 https://raw.githubusercontent.com/yaozitao709-del/migration-script/main/sui-singbox-migrate.sh) --force-reimport
+```
 
 ## 四、先检查，再正式运行
 
