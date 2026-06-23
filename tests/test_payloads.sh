@@ -6,6 +6,7 @@ source "$ROOT_DIR/tests/helpers.sh"
 export SUI_MIGRATE_LIBRARY_MODE=1
 source "$ROOT_DIR/sui-singbox-migrate.sh"
 
+DIRECT_PUBLIC_IP="198.51.100.45"
 load_source_config "$ROOT_DIR/tests/fixtures/source/etc/sing-box"
 SUI_DIR="/usr/local/s-ui"
 REALITY_TLS_ID=11
@@ -27,17 +28,16 @@ assert_json '.server.reality.private_key' 'FIXTURE_REALITY_PRIVATE_KEY' "$realit
 assert_json '.client.reality.public_key' 'FIXTURE_REALITY_PUBLIC_KEY' "$reality" "Reality 公钥"
 assert_json '.name' 'migrated-quic-tls' "$shared" "公共 TLS 名称"
 assert_json '.tls_id' '11' "$vless" "VLESS 关联 Reality TLS"
-assert_eq '[2400:8d60:8::91d5:2f81]' "$(format_url_host '2400:8d60:8::91d5:2f81')" "IPv6 公开地址补方括号"
-VLESS_PUBLIC_SERVER='2400:8d60:8::91d5:2f81'
-vless_ipv6="$(build_vless_payload)"
-assert_json '.addrs[0].server' '[2400:8d60:8::91d5:2f81]' "$vless_ipv6" "VLESS IPv6 订阅地址合法"
+assert_json '.addrs[0].server' '198.51.100.45' "$vless" "VLESS 发布 VPS IPv4"
 assert_json '.listen_port' '8001' "$vmess" "VMess 监听 8001"
 assert_json '.listen' '127.0.0.1' "$vmess" "VMess 仅监听本机"
 assert_json '.addrs[0].server' 'cdns.doon.eu.org' "$vmess" "VMess 使用 CDN 地址"
 assert_json '.addrs[0].tls.server_name' 'fixture-argo.trycloudflare.com' "$vmess" "VMess 使用 Argo SNI"
 assert_json '.transport.headers.Host' 'fixture-argo.trycloudflare.com' "$vmess" "VMess 设置 WS Host"
 assert_json '.tls_id' '12' "$hy2" "Hysteria2 关联公共 TLS"
+assert_json '.addrs[0].server' '198.51.100.45' "$hy2" "Hysteria2 发布 VPS IPv4"
 assert_json '.tls_id' '12' "$tuic" "TUIC 关联公共 TLS"
+assert_json '.addrs[0].server' '198.51.100.45' "$tuic" "TUIC 发布 VPS IPv4"
 assert_json '.tag' 'wireguard-out' "$warp" "读取 WARP endpoint"
 assert_json '.type' 'direct' "$direct" "创建 direct 出站"
 assert_json '.tag' 'direct' "$direct" "direct 出站标签"

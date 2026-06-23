@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 umask 077
 
-SCRIPT_VERSION="0.1.2"
+SCRIPT_VERSION="0.1.3"
 SOURCE_PROFILE="eooce/sing-box@9b4a35d79944b41c57751ebcebc6ff55ada83df3"
 SUI_VERSION="v1.4.1"
 SUI_SINGBOX_VERSION="v1.13.4"
@@ -20,6 +20,7 @@ PANEL_PATH="${PANEL_PATH:-}"
 SUB_PATH="${SUB_PATH:-}"
 ADMIN_USER="${ADMIN_USER:-}"
 ADMIN_PASS="${ADMIN_PASS:-}"
+DIRECT_PUBLIC_IP="${DIRECT_PUBLIC_IP:-}"
 
 ASSUME_YES=0
 PLAN_ONLY=0
@@ -33,6 +34,8 @@ BACKUP_DIR=""
 PANEL_BASE_URL=""
 SUB_BASE_URL=""
 ARCH=""
+DIRECT_PUBLIC_SERVER=""
+DIRECT_ADDRESS_SOURCE=""
 MUTATION_STARTED=0
 MIGRATION_COMMITTED=0
 
@@ -72,6 +75,7 @@ S-UI 接管现有 sing-box 四协议节点
   SUB_PATH=/随机路径/
   ADMIN_USER=管理员用户名
   ADMIN_PASS=管理员密码
+  DIRECT_PUBLIC_IP=VPS公网IPv4
 
 前提：
   1. Ubuntu VPS
@@ -172,6 +176,61 @@ extract_uri_port() {
   sed -nE 's#^[a-zA-Z0-9]+://[^@]+@(\[[^]]+\]|[^:]+):([0-9]+).*#\2#p'
 }
 
+is_ipv4() {
+  local ip="$1" octet
+  local -a octets
+  [[ "$ip" =~ ^[0-9]+(\.[0-9]+){3}$ ]] || return 1
+  IFS='.' read -r -a octets <<<"$ip"
+  (( ${#octets[@]} == 4 )) || return 1
+  for octet in "${octets[@]}"; do
+    [[ "$octet" =~ ^[0-9]+$ ]] || return 1
+    (( 10#$octet >= 0 && 10#$octet <= 255 )) || return 1
+  done
+}
+
+detect_public_ipv4() {
+  local endpoint candidate
+  for endpoint in \
+    https://api.ipify.org \
+    https://ipv4.icanhazip.com \
+    https://api4.ipify.org \
+    https://ip.sb; do
+    candidate="$(
+      run_curl -4fsS --connect-timeout 4 --max-time 8 "$endpoint" 2>/dev/null ||
+        true
+    )"
+    candidate="${candidate//$'\r'/}"
+    candidate="${candidate//$'\n'/}"
+    if is_ipv4 "$candidate"; then
+      printf '%s' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+resolve_direct_public_address() {
+  local detected=""
+  if [[ -n "$DIRECT_PUBLIC_IP" ]]; then
+    if ! is_ipv4 "$DIRECT_PUBLIC_IP"; then
+      die "DIRECT_PUBLIC_IP 必须是合法的 IPv4 地址"
+      return 1
+    fi
+    DIRECT_PUBLIC_SERVER="$DIRECT_PUBLIC_IP"
+    DIRECT_ADDRESS_SOURCE="DIRECT_PUBLIC_IP"
+    return
+  fi
+
+  detected="$(detect_public_ipv4 || true)"
+  if [[ -n "$detected" ]]; then
+    DIRECT_PUBLIC_SERVER="$detected"
+    DIRECT_ADDRESS_SOURCE="自动探测 IPv4"
+  else
+    DIRECT_PUBLIC_SERVER=""
+    DIRECT_ADDRESS_SOURCE="原订阅地址"
+  fi
+}
+
 load_source_config() {
   local source_dir="${1:-$SOURCE_DIR}"
   local inbounds="$source_dir/conf/inbounds.json"
@@ -207,6 +266,13 @@ load_source_config() {
   [[ -n "$VLESS_PUBLIC_SERVER" ]] || die "无法从旧订阅读取服务器地址"
   [[ -n "$HY2_PUBLIC_SERVER" ]] || HY2_PUBLIC_SERVER="$VLESS_PUBLIC_SERVER"
   [[ -n "$TUIC_PUBLIC_SERVER" ]] || TUIC_PUBLIC_SERVER="$VLESS_PUBLIC_SERVER"
+
+  resolve_direct_public_address
+  if [[ -n "$DIRECT_PUBLIC_SERVER" ]]; then
+    VLESS_PUBLIC_SERVER="$DIRECT_PUBLIC_SERVER"
+    HY2_PUBLIC_SERVER="$DIRECT_PUBLIC_SERVER"
+    TUIC_PUBLIC_SERVER="$DIRECT_PUBLIC_SERVER"
+  fi
 
   vmess_encoded="$(sed -n 's#^vmess://##p' "$source_dir/url.txt" | head -n1)"
   [[ -n "$vmess_encoded" ]] || die "旧订阅中缺少 VMess 链接"
@@ -421,10 +487,11 @@ print_plan() {
 S-UI：${SUI_VERSION}（内置 sing-box ${SUI_SINGBOX_VERSION}）
 
 准备导入：
-  VLESS-Reality  TCP ${VLESS_PORT}
-  VMess-WS-Argo  TCP ${VMESS_PORT}
-  Hysteria2      UDP ${HY2_PORT}
-  TUIC           UDP ${TUIC_PORT}
+  VLESS-Reality  TCP ${VLESS_PORT}  地址 ${VLESS_PUBLIC_SERVER}
+  VMess-WS-Argo  TCP ${VMESS_PORT}  CDN ${ARGO_PUBLIC_SERVER}:${ARGO_PUBLIC_PORT}
+  Hysteria2      UDP ${HY2_PORT}  地址 ${HY2_PUBLIC_SERVER}
+  TUIC           UDP ${TUIC_PORT}  地址 ${TUIC_PUBLIC_SERVER}
+  直连地址来源    ${DIRECT_ADDRESS_SOURCE}
   Argo 临时域名  ${ARGO_DOMAIN}
 
 面板端口：${PANEL_PORT}
@@ -1125,6 +1192,12 @@ S-UI 面板：
 
 订阅地址格式：
   http://${ip}:${SUB_PORT}${SUB_PATH}用户名
+
+直连节点地址：
+  ${VLESS_PUBLIC_SERVER}（${DIRECT_ADDRESS_SOURCE}）
+
+VMess CDN：
+  ${ARGO_PUBLIC_SERVER}:${ARGO_PUBLIC_PORT}
 
 下一步：
   1. 打开上面的面板地址并登录。

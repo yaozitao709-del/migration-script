@@ -7,6 +7,7 @@ export SUI_MIGRATE_LIBRARY_MODE=1
 source "$ROOT_DIR/sui-singbox-migrate.sh"
 
 FIXTURE="$ROOT_DIR/tests/fixtures/source/etc/sing-box"
+DIRECT_PUBLIC_IP="198.51.100.45"
 load_source_config "$FIXTURE"
 
 assert_eq "21001" "$VLESS_PORT" "读取 VLESS 端口"
@@ -19,7 +20,9 @@ assert_eq "FIXTURE_REALITY_PUBLIC_KEY" "$REALITY_PUBLIC_KEY" "读取 Reality 公
 assert_eq "fixture-argo.trycloudflare.com" "$ARGO_DOMAIN" "读取 Argo 临时域名"
 assert_eq "cdns.doon.eu.org" "$ARGO_PUBLIC_SERVER" "读取 Argo 公网地址"
 assert_eq "443" "$ARGO_PUBLIC_PORT" "读取 Argo 公网端口"
+assert_eq "198.51.100.45" "$VLESS_PUBLIC_SERVER" "VLESS 优先使用指定 IPv4"
+assert_eq "198.51.100.45" "$HY2_PUBLIC_SERVER" "Hysteria2 优先使用指定 IPv4"
+assert_eq "198.51.100.45" "$TUIC_PUBLIC_SERVER" "TUIC 优先使用指定 IPv4"
 assert_eq "amd64" "$(detect_arch x86_64)" "识别 amd64"
 assert_eq "arm64" "$(detect_arch aarch64)" "识别 arm64"
 finish_tests
-

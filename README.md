@@ -19,6 +19,12 @@
 
 脚本不会把你的服务器 IP、节点密钥或管理员密码写进 GitHub。它只会在你的 VPS 上读取现有配置。
 
+地址选择规则：
+
+- VLESS-Reality、Hysteria2、TUIC 默认自动使用 VPS 公网 IPv4；
+- VMess-Argo 继续使用原来的 Cloudflare CDN 地址，不受直连地址切换影响；
+- 自动获取 IPv4 失败时，才保留原订阅中的 IPv4 或 IPv6 地址。
+
 ## 使用前
 
 - 目前仅支持 Ubuntu；
@@ -127,8 +133,16 @@ bash sui-singbox-migrate.sh --force-reimport
 bash <(curl -fsSL --connect-timeout 15 https://raw.githubusercontent.com/yaozitao709-del/migration-script/main/sui-singbox-migrate.sh) --force-reimport
 ```
 
+脚本会自动获取 VPS 公网 IPv4。如果需要手动指定，可以运行：
+
+```bash
+DIRECT_PUBLIC_IP=你的VPS公网IPv4 bash <(curl -fsSL --connect-timeout 15 https://raw.githubusercontent.com/yaozitao709-del/migration-script/main/sui-singbox-migrate.sh) --force-reimport
+```
+
 `--force-reimport` 会修复已经导入过的基础配置，不会删除你在 S-UI 面板里创建的用户。这个版本会额外修复：
 
+- VLESS、Hysteria2、TUIC 继承原订阅 IPv6，但当前网络下 IPv4 延迟和速度更好的问题；
+- VMess 保持使用 Cloudflare CDN，不随三个直连节点切换到 VPS IPv4；
 - IPv6 公开地址在 VLESS、Hysteria2、TUIC 订阅链接中缺少 `[]` 导致客户端提示“无效 URL 配置”；
 - S-UI 缺少可用 `direct` 出站导致 VMess 能导入但实际访问超时；
 - 旧路由里残留 `{ "rule_set": [] }` 空规则，导致 S-UI 日志出现 `router outbound not found:`，四个协议都能连入但全部超时；

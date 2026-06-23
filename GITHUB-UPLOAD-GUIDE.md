@@ -64,6 +64,14 @@ bash <(curl -fsSL --connect-timeout 15 https://raw.githubusercontent.com/yaozita
 bash <(curl -fsSL --connect-timeout 15 https://raw.githubusercontent.com/yaozitao709-del/migration-script/main/sui-singbox-migrate.sh) --force-reimport
 ```
 
+这条命令会让 VLESS、Hysteria2、TUIC 自动使用 VPS 公网 IPv4，同时保留 VMess 的 CDN 地址。
+
+如果自动获取的地址不正确，可以手动指定：
+
+```bash
+DIRECT_PUBLIC_IP=你的VPS公网IPv4 bash <(curl -fsSL --connect-timeout 15 https://raw.githubusercontent.com/yaozitao709-del/migration-script/main/sui-singbox-migrate.sh) --force-reimport
+```
+
 ## 四、先检查，再正式运行
 
 登录 Ubuntu VPS 后，先执行：
