@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 umask 077
 
-SCRIPT_VERSION="0.1.3"
+SCRIPT_VERSION="0.1.4"
 SOURCE_PROFILE="eooce/sing-box@9b4a35d79944b41c57751ebcebc6ff55ada83df3"
 SUI_VERSION="v1.4.1"
 SUI_SINGBOX_VERSION="v1.13.4"
@@ -582,8 +582,10 @@ prompt_settings() {
 
 load_existing_state() {
   local credentials="$STATE_DIR/credentials.txt"
+  local running_script_version="$SCRIPT_VERSION"
   # shellcheck disable=SC1090,SC1091
   . "$STATE_DIR/completed.env"
+  SCRIPT_VERSION="$running_script_version"
   ADMIN_USER="${ADMIN_USER:-$(sed -n 's/^管理员用户名：//p' "$credentials" | head -n1)}"
   ADMIN_PASS="${ADMIN_PASS:-$(sed -n 's/^管理员密码：//p' "$credentials" | head -n1)}"
   [[ -n "$ADMIN_USER" && -n "$ADMIN_PASS" ]] ||
