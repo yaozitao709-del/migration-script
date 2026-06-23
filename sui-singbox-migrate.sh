@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 umask 077
 
-SCRIPT_VERSION="0.1.1"
+SCRIPT_VERSION="0.1.2"
 SOURCE_PROFILE="eooce/sing-box@9b4a35d79944b41c57751ebcebc6ff55ada83df3"
 SUI_VERSION="v1.4.1"
 SUI_SINGBOX_VERSION="v1.13.4"
@@ -394,6 +394,11 @@ build_base_config_payload() {
           else
             .
           end
+        | select(
+            ((.outbound? // "") != "")
+            or (((.action? // "") != "") and ((.action? // "") != "route"))
+            or (((.action? // "") == "route") and ((.outbound? // "") != ""))
+          )
       ]
   ' \
     "$SOURCE_DIR/conf/log.json" \
@@ -912,7 +917,7 @@ validate_argo_mapping() {
 }
 
 validate_outbound_route() {
-  local response tags config final missing
+  local response tags config final missing invalid_rules
   response="$(api_get outbounds)"
   tags="$(jq -r '.obj.outbounds[]?.tag' <<<"$response")"
   grep -Fxq 'direct' <<<"$tags" || die "缺少 direct 出站，节点无法访问外网"
@@ -925,6 +930,15 @@ validate_outbound_route() {
     ! api_get endpoints | jq -e --arg tag "$final" '.obj.endpoints[]? | select(.tag == $tag)' >/dev/null; then
     die "路由最终出口不存在：$final"
   fi
+
+  invalid_rules="$(jq -c '
+    (.route.rules // [])[]
+    | select(
+        ((.outbound? // "") == "")
+        and (((.action? // "") == "") or ((.action? // "") == "route"))
+      )
+  ' <<<"$config")"
+  [[ -z "$invalid_rules" ]] || die "路由中存在没有出口的空规则"
 
   missing="$(jq -r '
     (.route.rules // [])[]

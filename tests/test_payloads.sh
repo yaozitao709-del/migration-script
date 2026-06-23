@@ -42,6 +42,7 @@ assert_json '.tag' 'wireguard-out' "$warp" "读取 WARP endpoint"
 assert_json '.type' 'direct' "$direct" "创建 direct 出站"
 assert_json '.tag' 'direct' "$direct" "direct 出站标签"
 assert_json '.route.final' 'direct' "$base" "保留基础路由"
+assert_json '.route.rules | length' '0' "$base" "删除没有出口的空路由规则"
 assert_json '.inbounds | length' '4' "$client" "测试用户关联四个入站"
 assert_json '.config.vless.flow' 'xtls-rprx-vision' "$client" "测试用户包含 VLESS 配置"
 finish_tests

@@ -131,6 +131,7 @@ bash <(curl -fsSL --connect-timeout 15 https://raw.githubusercontent.com/yaozita
 
 - IPv6 公开地址在 VLESS、Hysteria2、TUIC 订阅链接中缺少 `[]` 导致客户端提示“无效 URL 配置”；
 - S-UI 缺少可用 `direct` 出站导致 VMess 能导入但实际访问超时；
+- 旧路由里残留 `{ "rule_set": [] }` 空规则，导致 S-UI 日志出现 `router outbound not found:`，四个协议都能连入但全部超时；
 - 健康检查只看端口、不检查订阅链接和路由出口的问题。
 
 ## 上传到 GitHub：最简单的网页操作
