@@ -2,7 +2,7 @@
 set -Eeuo pipefail
 umask 077
 
-SCRIPT_VERSION="0.1.4"
+SCRIPT_VERSION="0.1.5"
 SOURCE_PROFILE="eooce/sing-box@9b4a35d79944b41c57751ebcebc6ff55ada83df3"
 SUI_VERSION="v1.4.1"
 SUI_SINGBOX_VERSION="v1.13.4"
@@ -52,6 +52,8 @@ die() { error "$*"; return 1; }
 run_curl() { curl "$@"; }
 run_systemctl() { systemctl "$@"; }
 run_ss() { ss "$@"; }
+run_sleep() { sleep "$@"; }
+run_pkill() { pkill "$@"; }
 
 usage() {
   cat <<'EOF'
@@ -966,15 +968,23 @@ object_count() {
   api_get "$object" | jq -r --arg array "$array" '.obj[$array] | length'
 }
 
-validate_listeners() {
-  local missing=0
-  for port in "$VLESS_PORT" "$VMESS_PORT" "$HY2_PORT" "$TUIC_PORT"; do
-    if ! port_is_listening "$port"; then
-      error "端口没有监听：$port"
-      missing=1
-    fi
+wait_for_listeners() {
+  local attempts="${1:-30}" attempt port
+  local -a missing=()
+
+  for (( attempt = 1; attempt <= attempts; attempt++ )); do
+    missing=()
+    for port in "$VLESS_PORT" "$VMESS_PORT" "$HY2_PORT" "$TUIC_PORT"; do
+      port_is_listening "$port" || missing+=("$port")
+    done
+    (( ${#missing[@]} == 0 )) && return 0
+    (( attempt == attempts )) || run_sleep 1
   done
-  (( missing == 0 ))
+
+  for port in "${missing[@]}"; do
+    error "端口没有监听：$port"
+  done
+  return 1
 }
 
 validate_argo_mapping() {
@@ -1138,14 +1148,14 @@ validate_migration() {
   [[ "$(object_count tls tls)" -ge 2 ]] || die "TLS 配置数量不足"
   [[ "$(object_count inbounds inbounds)" -eq 4 ]] || die "四个入站没有全部导入"
   validate_outbound_route
-  validate_listeners
+  wait_for_listeners
   validate_argo_mapping
   validate_disposable_subscription
 
   run_systemctl restart s-ui
   wait_for_panel
   api_login
-  validate_listeners
+  wait_for_listeners
 }
 
 write_credentials() {
@@ -1216,17 +1226,89 @@ VMess CDN：
 EOF
 }
 
-restore_backup() {
+wait_for_ports_released() {
+  local attempts="${1:-15}" attempt port busy
+  shift || true
+
+  for (( attempt = 1; attempt <= attempts; attempt++ )); do
+    busy=0
+    for port in "$@"; do
+      if port_is_listening "$port"; then
+        busy=1
+        break
+      fi
+    done
+    (( busy == 0 )) && return 0
+    (( attempt == attempts )) || run_sleep 1
+  done
+  return 1
+}
+
+terminate_migration_processes() {
+  run_pkill -TERM -x sui >/dev/null 2>&1 || true
+  run_pkill -TERM -x argo >/dev/null 2>&1 || true
+  run_pkill -TERM -f '^/bin/bash /usr/bin/s-ui([[:space:]]|$)' >/dev/null 2>&1 || true
+  run_sleep 1
+  run_pkill -KILL -x sui >/dev/null 2>&1 || true
+  run_pkill -KILL -x argo >/dev/null 2>&1 || true
+  run_pkill -KILL -f '^/bin/bash /usr/bin/s-ui([[:space:]]|$)' >/dev/null 2>&1 || true
+}
+
+restore_source_tree() {
   local path="$1"
+  rm -rf "$SOURCE_DIR"
+  cp -a "$path/sing-box" "$SOURCE_DIR"
+}
+
+restore_service_state() {
+  local path="$1" service="$2" enabled="" active=""
+  if [[ -f "$path/service-state.tsv" ]]; then
+    enabled="$(awk -F '\t' -v service="$service" '$1 == service {print $2; exit}' "$path/service-state.tsv")"
+    active="$(awk -F '\t' -v service="$service" '$1 == service {print $3; exit}' "$path/service-state.tsv")"
+  fi
+
+  case "$enabled" in
+    enabled) run_systemctl enable "$service" >/dev/null 2>&1 || true ;;
+    disabled) run_systemctl disable "$service" >/dev/null 2>&1 || true ;;
+    masked) run_systemctl mask "$service" >/dev/null 2>&1 || true ;;
+  esac
+
+  case "$active" in
+    active|activating) run_systemctl start "$service" ;;
+    inactive|failed|deactivating) run_systemctl stop "$service" >/dev/null 2>&1 || true ;;
+  esac
+}
+
+restore_backup() {
+  local path="$1" port value
+  local -a rollback_ports=("$PANEL_PORT" "$SUB_PORT")
   [[ -d "$path" ]] || die "备份目录不存在：$path"
   [[ -d "$path/sing-box" ]] || die "备份中缺少 sing-box 目录"
 
-  warn "正在恢复备份：$path"
-  run_systemctl stop s-ui >/dev/null 2>&1 || true
-  run_systemctl disable s-ui >/dev/null 2>&1 || true
+  for value in \
+    "${VLESS_PORT:-}" \
+    "${VMESS_PORT:-}" \
+    "${HY2_PORT:-}" \
+    "${TUIC_PORT:-}"; do
+    [[ -z "$value" ]] || rollback_ports+=("$value")
+  done
+  if [[ -f "$path/sing-box/conf/inbounds.json" ]]; then
+    while IFS= read -r port; do
+      [[ -z "$port" ]] || rollback_ports+=("$port")
+    done < <(jq -r '.inbounds[]?.listen_port // empty' "$path/sing-box/conf/inbounds.json" | sort -u)
+  fi
 
-  rm -rf "$SOURCE_DIR"
-  cp -a "$path/sing-box" "$SOURCE_DIR"
+  warn "正在恢复备份：$path"
+  run_systemctl disable --now sui-argo-sync.timer sui-argo-sync.path >/dev/null 2>&1 || true
+  run_systemctl disable --now s-ui >/dev/null 2>&1 || true
+  run_systemctl stop sing-box argo >/dev/null 2>&1 || true
+  terminate_migration_processes
+  if ! wait_for_ports_released 15 "${rollback_ports[@]}"; then
+    die "回滚前仍有迁移端口被占用"
+    return 1
+  fi
+
+  restore_source_tree "$path"
   [[ ! -f "$path/sing-box.service" ]] ||
     cp -a "$path/sing-box.service" "$SYSTEMD_DIR/sing-box.service"
   [[ ! -f "$path/argo.service" ]] ||
@@ -1250,10 +1332,9 @@ restore_backup() {
   rm -rf /usr/local/lib/sui-argo-sync "$ARGO_SYNC_DIR"
 
   run_systemctl daemon-reload
-  run_systemctl enable sing-box >/dev/null 2>&1 || true
-  run_systemctl restart sing-box
-  run_systemctl enable argo >/dev/null 2>&1 || true
-  run_systemctl restart argo
+  restore_service_state "$path" sing-box
+  restore_service_state "$path" argo
+  [[ ! -d "$path/s-ui" ]] || restore_service_state "$path" s-ui
   if command -v nginx >/dev/null 2>&1 && nginx -t; then
     run_systemctl reload nginx || true
   fi
